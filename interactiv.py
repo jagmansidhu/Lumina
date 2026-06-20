@@ -4,6 +4,7 @@ from textblob import TextBlob
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 from collections import defaultdict
 import numpy as np
+import re
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
@@ -14,17 +15,28 @@ LABELS = ['anxiety', 'bipolar', 'stress', 'depression', 'normal', 'personality d
 id_to_label = {i: label for i, label in enumerate(LABELS)}
 label_to_id = {label: i for i, label in enumerate(LABELS)}
 
+# Keywords for fallback keyword-based detection
+LABEL_KEYWORDS = {
+    'anxiety': ['anxious', 'worry', 'worried', 'nervous', 'fear', 'panic', 'scared', 'dread', 'uneasy'],
+    'bipolar': ['bipolar', 'mood swing', 'manic', 'mania', 'euphoria', 'episode', 'highs and lows'],
+    'stress': ['stress', 'stressed', 'overwhelmed', 'pressure', 'deadline', 'burnout', 'exhausted', 'overload'],
+    'depression': ['depressed', 'hopeless', 'worthless', 'sad', 'empty', 'numb', 'lonely', 'miserable', 'grief'],
+    'normal': ['fine', 'okay', 'good', 'great', 'happy', 'well', 'normal'],
+    'personality disorder': ['identity', 'personality', 'unstable', 'impulsive', 'dissociation', 'splitting'],
+    'suicidal': ['suicidal', 'suicide', 'end my life', 'kill myself', 'die', 'no way out', 'done with life'],
+}
+
+classifier = None
 
 print(f"Loading fine-tuned model from: {MODEL_SAVE_PATH}")
 try:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_SAVE_PATH)
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_SAVE_PATH)
     classifier = pipeline("text-classification", model=model, tokenizer=tokenizer)
-
+    print("Model loaded successfully.")
 except Exception as e:
-    print(f"Error loading model from {MODEL_SAVE_PATH}: {e}")
-    print("Please ensure you have run the fine-tuning script and saved the model correctly.")
-    exit()
+    print(f"Warning: Could not load model from '{MODEL_SAVE_PATH}': {e}")
+    print("Falling back to keyword-based detection. Run TrainModel.ipynb and save your model to './model' to enable ML classification.")
 
 print("\n--- Mental Health Text Classifier (Non-Clinical Use) ---")
 print("Enter text to get a predicted mental health category.")
@@ -32,7 +44,7 @@ print("Type 'quit' or 'exit' to stop.")
 
 def preprocess_text(text):
     text = text.lower()
-    text = text.sub(r'[^a-zA-Z0-9\s]', '', text)
+    text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
     text = text.strip()
     return text
 
@@ -48,11 +60,11 @@ def detect_mental_state(text):
     text = preprocess_text(text)
     word_count = defaultdict(int)
 
-    for state, keywords in LABELS.items():
+    for state, keywords in LABEL_KEYWORDS.items():
         for keyword in keywords:
             word_count[state] += text.count(keyword)
 
-    if word_count:
+    if any(v > 0 for v in word_count.values()):
         return max(word_count.items(), key=lambda x: x[1])[0]
     return 'normal'
 
@@ -94,6 +106,10 @@ def get_response(category, confidence, sentiment_data, text):
             "I'm concerned about what you're saying. If you're having thoughts of self-harm, please contact a mental health professional immediately. You can reach the National Suicide Prevention Lifeline at 988 or text HOME to 741741 to reach the Crisis Text Line. You're not alone, and help is available."
         ]
     }
+
+    # Default to normal if category not found
+    if category not in base_responses:
+        category = 'normal'
 
     response = np.random.choice(base_responses[category])
 

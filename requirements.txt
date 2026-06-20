@@ -3,13 +3,11 @@ numpy
 matplotlib
 scikit-learn
 transformers
-torch # Or tensorflow if you chose that backend
+torch
 datasets
 tqdm
 seaborn
 nltk
-flask_cors
+flask-cors
 flask
-transformers
-text_blob
-collections
+textblob
